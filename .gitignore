@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.pytest-tmp/
+.ruff_cache/
+.tmp/
+.venv/
+.uv-cache/
+.uv-python/
+.uv-tools/
+build/
+dist/
+.DS_Store
+.idea/
+.vscode/
