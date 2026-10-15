@@ -3,20 +3,33 @@
 [![CI](https://github.com/metricharbor/spark-triage/actions/workflows/ci.yml/badge.svg)](https://github.com/metricharbor/spark-triage/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)](https://www.python.org/)
+[![Spark](https://img.shields.io/badge/Spark-4.x-E25A1C.svg)](https://spark.apache.org/)
 
-Spark Triage is an open-source, offline-first CLI that turns Apache Spark event logs into
-evidence-backed performance and reliability findings.
+Spark Triage is a Spark 4-native diagnostic engine for event logs. It rebuilds a queryable
+`SQL -> Job -> Stage -> Task -> Executor` execution graph, calculates timelines and efficiency,
+and emits deterministic root-cause findings with evidence and recommended next actions.
 
-The first release focuses on a narrow promise: point the CLI at an event log and quickly find
-the stages that deserve an engineer's attention. It currently detects:
+Version 1.0 combines the Spark-specific diagnostic ideas of
+[Dr. Elephant](https://github.com/linkedin/dr-elephant) and
+[SparkLens](https://github.com/qubole/sparklens) in a small, dependency-free Python core. It is a
+clean Spark 4 implementation, not a source-code concatenation or a replacement for Spark History
+Server.
 
-- task-duration skew within a stage;
-- excessive memory or disk spill;
-- failed task attempts; and
-- stage-level task, input, and shuffle metrics.
+## What V1.0 does
 
-No cluster credentials or hosted service are required. Event logs stay on the machine where the
-CLI runs.
+- Replays plain, gzip, and rolling Spark 4 event logs.
+- Correlates SQL executions, jobs, stage attempts, task attempts, executors, and hosts.
+- Reports application, job, stage, executor, and host timelines.
+- Computes job overlap, stage overlap, critical path, driver gaps, executor utilization, task skew,
+  I/O, shuffle, spill, GC, and executor distributions.
+- Simulates dependency-aware job wall-clock time at seven executor-count levels.
+- Diagnoses failures, retries, task/input skew, spill, GC pressure, shuffle wait, executor loss,
+  Cartesian joins, low utilization, uneven executor load, and relevant Spark configuration.
+- Tracks a stable workload ID and detects runtime, spill, and shuffle regressions against previous
+  runs.
+- Produces a versioned JSON contract and CI-friendly exit codes.
+
+See the exact [feature and legacy-test mapping](docs/feature-matrix.md).
 
 ## Quick start
 
@@ -26,54 +39,54 @@ cd spark-triage
 python -m venv .venv
 source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
 python -m pip install -e .
-spark-triage analyze /path/to/spark-event-log --format text
+
+spark-triage inspect /path/to/event-log
+spark-triage analyze /path/to/event-log --format text
+spark-triage analyze /path/to/rolling-event-log-directory --format json
 ```
 
-For machine-readable output:
+Spark Triage intentionally accepts Spark 4.x logs only. `inspect` validates the version and shows
+which event types were captured before any diagnosis is trusted.
+
+## Repeated-run anomaly detection
+
+Set `spark.triage.workload.id` in the Spark properties, or pass `--workload-id`, so repeated
+application IDs map to one logical workload:
 
 ```bash
-spark-triage analyze /path/to/spark-event-log --format json
+spark-triage analyze events.json \
+  --workload-id checkout-daily \
+  --baseline-store .spark-triage/baselines.json \
+  --record-baseline
 ```
 
-Example text output:
+After three prior runs, the next analysis compares runtime, spill, and shuffle volume with the
+historical median. The local baseline store retains the latest 50 runs per workload.
 
-```text
-Application: checkout-etl (app-20261015-0001)
-Stages: 1 | Tasks: 5 | Findings: 2
-
-[WARNING] DATA_SKEW stage=7
-  Slowest task took 6000 ms, 6.0x the stage median of 1000 ms.
-[WARNING] EXCESSIVE_SPILL stage=7
-  Stage spilled 83886080 bytes while processing shuffle data.
-```
-
-Exit codes are `0` for a completed analysis, `1` for invalid input, and `2` when `--fail-on`
-matches a finding. This makes the CLI usable in CI and scheduled diagnostics:
+## Automation contract
 
 ```bash
-spark-triage analyze event-log.json --fail-on warning
+spark-triage analyze events.json --format json --fail-on warning
 ```
 
-## What the CLI reads
+Exit codes are:
 
-Spark event logs are newline-delimited JSON files produced by Spark's event logging system. Enable
-them with `spark.eventLog.enabled=true`, then pass a completed event log to Spark Triage.
+- `0`: analysis completed and did not cross `--fail-on`;
+- `1`: invalid input, unsupported Spark version, or invalid options;
+- `2`: at least one finding crossed the requested severity.
 
-The parser is intentionally tolerant of missing optional metrics, but reports malformed JSON with
-the exact line number. Compressed logs and rolling event-log directories are not supported yet.
+JSON output uses schema `spark-triage/v1` and contains `replay`, `application`, `analytics`, and
+`findings`. Every finding includes its scope, correlated IDs, measured evidence, and a next action.
 
-## Diagnostic model
+## History Server and Spark Triage
 
-Every finding contains a rule identifier, severity, stage ID, human-readable evidence, and
-structured details. The initial rules are deterministic and inspectable:
+Spark History Server replays event logs to reconstruct Spark's UI. Spark Triage consumes the same
+kind of persisted evidence but answers a different question: *what is abnormal, why is it likely
+happening, and what should an engineer inspect next?* The two tools are complementary.
 
-| Rule | Default trigger |
-| --- | --- |
-| `DATA_SKEW` | At least 4 tasks and the slowest task is at least 3x the median and 1s slower |
-| `EXCESSIVE_SPILL` | Memory plus disk spill exceeds 64 MiB in one stage |
-| `FAILED_TASKS` | One or more task attempts did not finish with `Success` |
-
-Use `--skew-ratio` and `--spill-threshold-mb` to tune the first two rules.
+V1.0 is offline-first and does not require cluster credentials. Event logs and baselines stay on
+the machine where the CLI runs. Spark listener, SQL plan-hook, and History Server ingestion are
+the next delivery track; see [architecture](docs/architecture.md).
 
 ## Development
 
@@ -83,25 +96,18 @@ ruff check .
 pytest
 ```
 
-The test fixture in `tests/fixtures/` is synthetic and contains no production or customer data.
+The test suite ports the relevant semantic scenarios from the two legacy projects and adds Spark 4
+fixtures for replay, correlation, gzip/rolling logs, RCA, baseline anomalies, and the CLI contract.
+Fixtures are synthetic and contain no production data.
 
-## Roadmap
+## Attribution and scope
 
-- Spark SQL execution and operator-level metrics
-- compressed and rolling event logs
-- executor-loss and out-of-memory diagnosis
-- history-server ingestion
-- comparison across repeated application runs
-- optional AI-generated explanations built on the deterministic evidence layer
+Dr. Elephant and SparkLens are Apache-2.0 projects. Spark Triage reimplements their Spark-relevant
+analysis concepts against a new Spark 4 model. No upstream source file is vendored. Dr. Elephant's
+MapReduce, Tez, Tony, web UI, database, and scheduler tests are outside this repository's Spark-only
+scope. The detailed mapping is documented in [docs/feature-matrix.md](docs/feature-matrix.md).
 
-See the [issue tracker](https://github.com/metricharbor/spark-triage/issues) for the first milestone.
+## Contributing and license
 
-## Contributing
-
-Issues and focused pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
-submitting a change.
-
-## License
-
-Licensed under the [Apache License 2.0](LICENSE).
-
+Issues and focused pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md). Spark Triage
+is licensed under the [Apache License 2.0](LICENSE).
