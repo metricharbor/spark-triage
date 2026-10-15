@@ -39,7 +39,7 @@ legacy assumptions such as always enabling an external shuffle service are not c
 ## Native Spark Triage coverage
 
 - Spark 4-only version gate and event inventory.
-- SQL-to-executor correlation with stable run and workload IDs.
+- SQL operator and accumulator metrics correlated to executors with stable run and workload IDs.
 - Plain, gzip, and rolling event-log input.
 - Cartesian-plan, incomplete-log, and unexpected executor-removal RCA.
 - Cross-run median baselines for runtime, spill, and shuffle regressions.

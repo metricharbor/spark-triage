@@ -404,6 +404,25 @@ def _analyze_executors(application: ApplicationSummary) -> list[Finding]:
     expected_removal_terms = ("decommission", "driver stopped", "application finished")
     for executor in sorted(application.executors.values(), key=lambda item: item.executor_id):
         reason = (executor.removed_reason or "").lower()
+        if any(term in reason for term in ("outofmemory", "out of memory", "oom")):
+            findings.append(
+                Finding(
+                    rule_id="EXECUTOR_OUT_OF_MEMORY",
+                    severity="critical",
+                    title="Executor was removed after an out-of-memory failure",
+                    message=(
+                        f"Executor {executor.executor_id} removal reason indicates OOM: "
+                        f"{executor.removed_reason}."
+                    ),
+                    scope="executor",
+                    executor_ids=(executor.executor_id,),
+                    evidence={"host": executor.host, "removed_reason": executor.removed_reason},
+                    recommendation=(
+                        "Correlate the OOM with partition size, skew, spill, serialization, "
+                        "and memory overhead before increasing heap size."
+                    ),
+                )
+            )
         if reason and not any(term in reason for term in expected_removal_terms):
             findings.append(
                 Finding(

@@ -18,6 +18,13 @@ def test_parse_spark_4_event_log_builds_execution_graph() -> None:
     assert application.task_count == 5
     assert application.jobs[1].sql_execution_id == 42
     assert application.sql_executions[42].job_ids == [1]
+    assert application.sql_executions[42].plan_operators == [
+        "HashAggregate",
+        "Exchange",
+        "Scan parquet checkout",
+    ]
+    assert application.sql_executions[42].metric_names[101] == "shuffle bytes written"
+    assert application.sql_executions[42].metric_values[101] == 251_658_240
     stage = application.stages[(7, 0)]
     assert stage.job_ids == [1]
     assert stage.task_durations_ms == [10_000, 11_000, 10_000, 10_000, 70_000]

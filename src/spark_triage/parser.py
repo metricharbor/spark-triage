@@ -83,6 +83,44 @@ def _mapping(value: Any) -> dict[str, str]:
     return {}
 
 
+def _plan_metadata(plan: Any) -> tuple[list[str], dict[int, str]]:
+    operators: list[str] = []
+    metric_names: dict[int, str] = {}
+
+    def visit(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        name = _value(node, "nodeName", "Node Name", "name")
+        if name:
+            operators.append(str(name))
+        for metric in _value(node, "metrics", "Metrics", default=[]) or []:
+            if not isinstance(metric, dict):
+                continue
+            accumulator_id = _optional_integer(_value(metric, "accumulatorId", "Accumulator ID"))
+            metric_name = _value(metric, "name", "Name")
+            if accumulator_id is not None and metric_name:
+                metric_names[accumulator_id] = str(metric_name)
+        for child in _value(node, "children", "Children", default=[]) or []:
+            visit(child)
+
+    visit(plan)
+    return operators, metric_names
+
+
+def _accumulator_updates(value: Any) -> dict[int, int]:
+    updates: dict[int, int] = {}
+    for item in value or []:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            updates[_integer(item[0])] = _integer(item[1])
+        elif isinstance(item, dict):
+            accumulator_id = _optional_integer(
+                _value(item, "id", "accumulatorId", "Accumulator ID")
+            )
+            if accumulator_id is not None:
+                updates[accumulator_id] = _integer(_value(item, "value", "Value"))
+    return updates
+
+
 def _natural_key(path: Path) -> list[str | int]:
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", path.name)]
 
@@ -305,6 +343,9 @@ def _apply_event(summary: ApplicationSummary, event: dict[str, Any]) -> None:
 
     if event_type == "SparkListenerSQLExecutionStart":
         execution_id = _integer(_value(event, "executionId", "Execution ID"))
+        operators, metric_names = _plan_metadata(
+            _value(event, "sparkPlanInfo", "Spark Plan Info", default={})
+        )
         summary.sql_executions[execution_id] = SQLExecutionSummary(
             execution_id=execution_id,
             root_execution_id=_optional_integer(
@@ -316,6 +357,8 @@ def _apply_event(summary: ApplicationSummary, event: dict[str, Any]) -> None:
             physical_plan_description=str(
                 _value(event, "physicalPlanDescription", "Physical Plan Description", default="")
             ),
+            plan_operators=operators,
+            metric_names=metric_names,
             start_time_ms=_optional_integer(_value(event, "time", "Time")),
         )
         return
@@ -327,6 +370,22 @@ def _apply_event(summary: ApplicationSummary, event: dict[str, Any]) -> None:
         )
         execution.physical_plan_description = str(
             _value(event, "physicalPlanDescription", "Physical Plan Description", default="")
+        )
+        operators, metric_names = _plan_metadata(
+            _value(event, "sparkPlanInfo", "Spark Plan Info", default={})
+        )
+        if operators:
+            execution.plan_operators = operators
+        execution.metric_names.update(metric_names)
+        return
+
+    if event_type == "SparkListenerDriverAccumUpdates":
+        execution_id = _integer(_value(event, "executionId", "Execution ID"))
+        execution = summary.sql_executions.setdefault(
+            execution_id, SQLExecutionSummary(execution_id=execution_id)
+        )
+        execution.metric_values.update(
+            _accumulator_updates(_value(event, "accumUpdates", "Accumulator Updates"))
         )
         return
 

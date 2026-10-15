@@ -174,6 +174,9 @@ class SQLExecutionSummary:
     description: str = "unknown"
     details: str = ""
     physical_plan_description: str = ""
+    plan_operators: list[str] = field(default_factory=list)
+    metric_names: dict[int, str] = field(default_factory=dict)
+    metric_values: dict[int, int] = field(default_factory=dict)
     start_time_ms: int | None = None
     end_time_ms: int | None = None
     error_message: str | None = None

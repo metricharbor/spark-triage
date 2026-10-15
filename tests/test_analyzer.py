@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from spark_triage.analyzer import analyze
-from spark_triage.models import ApplicationSummary, JobSummary, StageSummary
+from spark_triage.models import ApplicationSummary, ExecutorSummary, JobSummary, StageSummary
 from spark_triage.parser import parse_event_log
 
 FIXTURE = Path(__file__).parent / "fixtures" / "spark_4_event_log.jsonl"
@@ -51,3 +51,12 @@ def test_failure_rate_and_long_stage_thresholds() -> None:
     )
     rules = {finding.rule_id for finding in analyze(app).findings}
     assert {"JOB_FAILURE", "JOB_FAILURE_RATE", "STAGE_FAILURE", "LONG_RUNNING_STAGE"} <= rules
+
+
+def test_executor_oom_is_classified_as_a_root_cause() -> None:
+    app = ApplicationSummary()
+    app.executors["7"] = ExecutorSummary(
+        executor_id="7", host="worker-z", removed_reason="Container killed: OutOfMemoryError"
+    )
+    rules = {finding.rule_id for finding in analyze(app).findings}
+    assert {"EXECUTOR_OUT_OF_MEMORY", "UNEXPECTED_EXECUTOR_REMOVAL"} <= rules

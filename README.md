@@ -18,7 +18,8 @@ Server.
 ## What V1.0 does
 
 - Replays plain, gzip, and rolling Spark 4 event logs.
-- Correlates SQL executions, jobs, stage attempts, task attempts, executors, and hosts.
+- Correlates SQL executions and operator accumulators with jobs, stage attempts, task attempts,
+  executors, and hosts.
 - Reports application, job, stage, executor, and host timelines.
 - Computes job overlap, stage overlap, critical path, driver gaps, executor utilization, task skew,
   I/O, shuffle, spill, GC, and executor distributions.
